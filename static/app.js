@@ -1,6 +1,10 @@
 'use strict';
 const $ = (selector, scope = document) => scope.querySelector(selector);
 const $$ = (selector, scope = document) => [...scope.querySelectorAll(selector)];
+// Back/forward cache must not restore an obsolete signed-in identity after logout.
+window.addEventListener('pageshow', event => {
+  if (event.persisted && document.body.dataset.userId) location.reload();
+});
 // Keep stored UTC timestamps accurate, but display them in the reader’s locale.
 $$('time[datetime]').forEach(time => {
   const date = new Date(time.dateTime);
@@ -41,6 +45,10 @@ async function api(path, method = 'GET', data) {
   });
   const result = await response.json().catch(() => ({}));
   showLabFlags(response.headers.get('X-Lab-Flags'));
+  if (response.status === 401) {
+    location.assign('/login');
+    throw new Error('Your session ended. Sign in again.');
+  }
   if (!response.ok) throw new Error(result.error || 'Couldn’t finish that. Refresh and try again.');
   return result;
 }
@@ -72,9 +80,33 @@ onForm('#compose-form', async (form, data) => {
   else location.reload();
 });
 onForm('#settings-form', async (form, data) => {
-  await api(`/api/users/${form.dataset.id}`, 'PATCH', data);
-  toast('Changes saved. Looking like you.');
+  const result = await api(`/api/users/${form.dataset.id}`, 'PATCH', data);
+  const user = result.user;
+  if (!user || !Number.isInteger(user.id)) {
+    throw new Error('The server did not identify the updated account. Refresh to verify your changes.');
+  }
+  if (user.id !== Number(form.dataset.id) || user.id !== Number(document.body.dataset.userId)) {
+    toast(`Changes saved to @${user.username} (account #${user.id}), not your signed-in account.`);
+    return;
+  }
+  // Apply server-confirmed values, not the submitted form or another user's response.
+  ['name', 'bio', 'location', 'email'].forEach(key => {
+    if (typeof user[key] === 'string') form.elements.namedItem(key).value = user[key];
+  });
+  $$('[data-current-user-name]').forEach(label => { label.textContent = user.name; });
+  const words = user.name.trim().split(/\s+/);
+  const initials = Array.from(words[0])[0] + Array.from(words[words.length - 1])[0];
+  $$('.account .avatar, .top-avatar .avatar, .settings-avatar .avatar').forEach(avatar => {
+    avatar.textContent = initials;
+  });
+  $('.top-avatar')?.setAttribute('aria-label', `Your profile: ${user.name}`);
+  toast(result.changed_fields?.length
+    ? `Changes saved for @${user.username} (account #${user.id}).`
+    : `No changes to save for @${user.username} (account #${user.id}).`);
 });
+function authorLabel(author) {
+  return author.username ? `${author.name} · @${author.username}` : author.name;
+}
 $$('[data-action]').forEach(button => button.addEventListener('click', async () => {
   button.disabled = true;
   try {
@@ -94,7 +126,7 @@ function drawComments(panel, comments) {
   }
   comments.forEach(comment => {
     const p = document.createElement('p');
-    const name = document.createElement('strong'); name.textContent = comment.name;
+    const name = document.createElement('strong'); name.textContent = authorLabel(comment);
     p.append(name, document.createTextNode(comment.body)); list.append(p);
   });
 }
@@ -137,7 +169,7 @@ async function loadConversation(id) {
   const list = $('#message-list'); list.replaceChildren();
   thread.messages.forEach(message => {
     const bubble = document.createElement('div'); bubble.className = 'message';
-    const name = document.createElement('strong'); name.textContent = message.name;
+    const name = document.createElement('strong'); name.textContent = authorLabel(message);
     const text = document.createElement('p'); text.textContent = message.body;
     bubble.append(name, text); list.append(bubble);
   });

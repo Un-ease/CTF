@@ -5,3 +5,7 @@ instance/
 .env
 *.log
 .pytest_cache/
+# Machine-local deployment overrides; the maintained proxy config is in deploy/.
+/compose.override.yaml
+/compose.override.yaml.*
+/lab-proxy.conf

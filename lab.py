@@ -1,5 +1,5 @@
 """Teaching-only discovery markers. Never use these as production security controls."""
-from flask import g
+from flask import g, request
 
 FLAGS = {
     'INFO-01': 'COMMON{private_email_public_response}',
@@ -16,8 +16,10 @@ FLAGS = {
 
 def award(exercise):
     """Call only after the relevant disclosure or successful state change."""
-    flags = g.setdefault('lab_flags', [])
     flag = FLAGS[exercise]
+    if request.method == 'HEAD':
+        return flag  # No response body was disclosed; do not award a read flag.
+    flags = g.setdefault('lab_flags', [])
     if flag not in flags:
         flags.append(flag)
     return flag

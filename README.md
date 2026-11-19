@@ -21,18 +21,44 @@ Student account: **`alex` / `alex-common-2026`**. Students can also register nor
 ## Run in a container
 
 ```sh
-docker compose up --build -d
+docker compose up --build -d --wait
 ```
 
-Stop a running local server first if it already occupies port 5000. Compose uses a non-root container, a read-only root filesystem, a writable data volume, dropped capabilities, resource limits, an internal network, and a host-loopback-only published port. Gunicorn runs the application without an interactive debugger.
+Open **http://127.0.0.1:15000**. Use `docker-compose` instead if your machine has the standalone Compose executable. Set `LAB_PORT` to choose another host port.
+
+The application has **no published port** and stays on an internal-only network. An unprivileged, read-only NGINX proxy publishes `127.0.0.1:15000`, preserving cookies, diagnostic responses, and flag headers. It waits for the application health check and re-resolves the backend after container replacement. Only the proxy also joins the ingress bridge; the vulnerable backend has no direct egress. Gunicorn runs without an interactive debugger. Both containers drop capabilities and have resource limits.
+
+This avoids macOS AirPlay's port 5000 and Docker configurations that do not activate published ports for internal-only containers. It does not affect other applications on ports 443 or 8799.
+
+### Upgrading the earlier manual proxy setup
+
+The proxy is now included in `compose.yaml` and `deploy/lab-proxy.conf`. After pulling, back up the old machine-local override so it does not replace the maintained health dependency or proxy configuration:
+
+```sh
+if [ -f compose.override.yaml ]; then
+  mv compose.override.yaml "compose.override.yaml.backup-$(date +%Y%m%d-%H%M%S)"
+fi
+docker-compose up --build -d --wait
+curl -I http://127.0.0.1:15000/
+```
+
+Expect a 302 redirect to `/login`. Do **not** use `down -v` or reset the database just to update the application. The existing `common-data` volume and account edits remain intact.
 
 For remote classes, put this on a **disposable VM**, restrict access using a private VPN or SSH tunnel and firewall, and give students only the app's HTTP endpoint—not the repository, host filesystem, or Docker socket. Keep the loopback binding. An example student tunnel is:
 
 ```sh
-ssh -L 5000:127.0.0.1:5000 instructor@classroom-vm
+ssh -N -L 15000:127.0.0.1:15000 lab-tunnel@classroom-vm
 ```
 
-Students then browse `http://127.0.0.1:5000`. Do not add a gateway that rewrites the app's session cookie or strips the diagnostic responses: those are teaching surfaces. Use one instance per student/group when possible, since destructive authorization exercises affect shared data.
+Use a forwarding-only SSH account rather than granting students shell/repository access. Students then browse `http://127.0.0.1:15000`.
+
+For Tailscale, use **Serve**, not Funnel:
+
+```sh
+tailscale serve --bg --https=8443 http://127.0.0.1:15000
+```
+
+Share the HTTPS URL printed by Tailscale only with approved tailnet users. Restrict student access to the lab's port; sharing a host that already serves other applications must not grant access to those applications. A dedicated lab node is preferable. Do not add a gateway that rewrites the app's session cookie or strips the diagnostic responses: those are teaching surfaces. Use one instance per student/group when possible, since destructive authorization exercises affect shared data.
 
 ## Reset
 
@@ -63,13 +89,22 @@ Share [`STUDENT.md`](STUDENT.md) as the learner handout. The private flag answer
 - Registration, sign-in, sign-out, persistent hashed passwords and cookie sessions
 - Public feed; public, close-circle, and private posts; profile timelines
 - Likes, comments, bookmarks, deleting posts, and saved feed
-- People search and editable account/profile details
+- People search and editable account/profile details, with explicit target IDs/usernames in update responses
+- Live refresh of your own display name/avatar; comments and messages include stable usernames
 - Seeded direct-message conversations with working replies
 - Staff report queue and resolution actions
 - Centered desktop feed, prioritized neighborhood sidebar, and labeled mobile bottom navigation
 - Grouped profile settings, readable local timestamps, keyboard skip link, reduced-motion support, and locally hosted fonts/illustrations
 
 “Close circle” is an audience label for the initial access-control exercises, not a fully implemented social graph. There is no follow system, message initiation UI, email delivery, media upload, or password-recovery service yet. No external services are required at runtime.
+
+## Identity and shared lab data
+
+`id` and `username` identify the account; `name` is an editable display name and is not unique. An account with `username: "alex"` can legitimately have a different display name after an edit—including the intentional unauthorized-edit exercise. GET profile responses read one database row; a GET body does not update or merge user fields.
+
+Profile PATCH responses include the actual updated `user` and `changed_fields`. The UI only refreshes the signed-in identity when the returned target matches it; it explicitly warns when a different account was changed. Owner update responses also return the saved email, but another account's update response does not add a new email leak. Display-name changes never change usernames or account IDs.
+
+Use one instance per student/group. Profile edits, role changes, and deletions persist and can affect other learners sharing an instance. Code updates do not restore altered names or roles. The Python entry point and container deployment use separate databases by default; make sure you are inspecting the same instance. Reset only when you intentionally want to destroy lab data.
 
 ## Verify
 
@@ -95,6 +130,8 @@ The browser test uses temporary storage, checks real interactions, keyboard skip
 - `templates/`, `static/`: normal student-facing application
 - `tests/test_app.py`: behavior and vulnerability regression tests
 - `tests/test_flags.py`: flag awards and false-positive regression tests
+- `tests/test_correctness.py`: accidental identity, validation, session, and response-contract regressions
+- `deploy/lab-proxy.conf`: loopback ingress proxy configuration
 - `instructor/guide.md`: exercise catalog and answer key
 - `instructor/real-world-cases.md`: verified historical sources, scope differences, and evaluation criteria
 

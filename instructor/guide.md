@@ -71,7 +71,11 @@ These flags are intentionally static and source-readable. They are learning feed
 
 Normal workflows should remain usable: mobile sign-out is visible, new posts sort newest first, timestamps come from stored creation times (UTC), and authors can find their own saved non-public posts. Deleting a post removes its related comments, likes, saves, and moderation reports; unauthorized deletion itself remains BAC-04.
 
-JSON write endpoints require objects with text fields. Invalid profile names/emails return 400, duplicate account emails return 409, and missing profile IDs return 404. These validation checks do **not** enforce ownership or remove role mass assignment. Search's invalid-limit traceback remains the deliberate INFO-03 diagnostic exercise. Registration trims names before validation so a whitespace prefix cannot create an unusable account.
+JSON write endpoints require objects with text fields. Invalid profile names/emails/role values return 400, case-insensitive duplicate account emails return 409, and missing profile IDs return 404. The only supported roles are `member` and `admin`; a member can still assign `admin` through BAC-03. Registration also handles a duplicate-insert race with a form error instead of an accidental traceback. These validation checks do **not** enforce ownership or remove role mass assignment. Search's invalid-limit traceback remains the deliberate INFO-03 diagnostic exercise. Registration trims names before validation so a whitespace prefix cannot create an unusable account.
+
+Profile PATCH responses identify the actual updated account in `user` and list `changed_fields`; they do not merge request or session identity into that record. Owner responses include the saved email, while other-target PATCH responses omit it so an empty PATCH does not become another ungraded email leak. A display name can differ from the immutable username, including after BAC-02. The settings UI updates its own name/avatar immediately, warns on an unexpected target, and comments/messages show usernames beside display names. Test with separate accounts rather than assuming equal names imply equal identities.
+
+HEAD requests do not award disclosure flags: an empty HEAD response is not proof that private content was delivered. Ordinary GET disclosures and all nine exercises remain graded. Malformed session field types are handled without accidental database/type exceptions; the documented correctly signed session-forgery chain still works.
 
 ## Request practice
 

@@ -66,16 +66,36 @@ def main():
                 page.locator('#search-results a').first.click()
                 page.get_by_role('heading', name='Maya Chen', exact=True).wait_for()
                 page.get_by_role('link', name='Settings', exact=True).click()
+                page.locator('input[name="name"]').fill('  Alex Updated  ')
                 page.get_by_label('About you', exact=True).fill('Updated from a real browser.')
                 page.get_by_role('button', name='Save changes').click()
                 page.get_by_role('status').filter(has_text='Changes saved').wait_for()
+                assert page.locator('.account strong').text_content() == 'Alex Updated', 'Sidebar identity stayed stale after saving'
+                assert page.locator('.settings-avatar strong').text_content() == 'Alex Updated'
+                assert page.locator('.account small').text_content() == '@alex', 'Display-name edit changed the account identity'
+                assert page.locator('.top-avatar .avatar').text_content() == 'AU'
+                assert page.locator('input[name="name"]').input_value() == 'Alex Updated', 'Form did not apply server-normalized values'
+                # Simulate a proxy changing the PATCH target: never merge that user into our sidebar.
+                page.route('**/api/users/1', lambda route: route.fulfill(json={
+                    'ok': True, 'user': {'id': 2, 'username': 'maya', 'name': 'Different Account'},
+                    'changed_fields': ['name']
+                }))
+                page.locator('input[name="name"]').fill('Submitted Name')
+                page.get_by_role('button', name='Save changes').click()
+                page.get_by_role('status').filter(has_text='not your signed-in account').wait_for()
+                assert page.locator('.account strong').text_content() == 'Alex Updated'
+                assert page.locator('.settings-avatar strong').text_content() == 'Alex Updated'
+                page.unroute('**/api/users/1')
                 page.reload()
                 assert page.get_by_label('About you', exact=True).input_value() == 'Updated from a real browser.'
+                assert page.locator('input[name="name"]').input_value() == 'Alex Updated'
                 page.locator('nav a[href="/messages"]').click()
                 page.locator('.thread').first.click()
                 page.get_by_label('Your message', exact=True).fill('See you at the market!')
                 page.get_by_role('button', name='Send').click()
                 page.get_by_text('See you at the market!', exact=True).wait_for()
+                assert '@maya' in page.locator('#message-list strong').first.text_content(), 'Message author lacks stable username'
+                assert '@alex' in page.locator('#message-list strong').last.text_content()
                 page.set_viewport_size({'width': 390, 'height': 844})
                 page.goto(origin)
                 page.locator('.post-art img').evaluate_all('images => images.forEach(image => image.loading = "eager")')
@@ -87,6 +107,9 @@ def main():
                 sign_out.click()
                 page.wait_for_url(origin + '/login')
                 assert page.locator('.account').count() == 0
+                page.go_back()
+                page.wait_for_url(origin + '/login')
+                assert page.locator('.account').count() == 0, 'Back navigation restored a logged-out identity'
                 page.goto(origin + '/settings')
                 page.wait_for_url(origin + '/login')
                 page.goto(origin + '/signup')
@@ -183,6 +206,13 @@ def main():
                     for path in ['/', '/settings', '/people/browserneighbor']:
                         page.goto(origin + path)
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Long profile text overflows at {width}px: {path}'
+                # Expire the cookie while a signed-in page remains open.
+                csrf = page.locator('meta[name="csrf-token"]').get_attribute('content')
+                page.request.post(origin + '/logout', headers={'X-CSRF-Token': csrf})
+                page.locator('#search').fill('Maya')
+                page.get_by_role('button', name='Search people', exact=True).click()
+                page.wait_for_url(origin + '/login')
+                assert page.locator('.account').count() == 0, 'Expired API session left another identity on screen'
                 guest = browser.new_page(viewport={'width': 320, 'height': 844})
                 for path in ['/login', '/signup']:
                     guest.goto(origin + path)
@@ -192,7 +222,7 @@ def main():
                 assert not errors, errors
                 assert not external, external
                 browser.close()
-                print('Browser smoke passed: feed, likes, saves, posts, comments, search, settings, messages, mobile logout, signup identity, private bookmarks, conversation race, HTML/API discovery flags, 8 responsive widths, desktop reading measure, search dropdowns, reduced motion; no JS errors or external requests.')
+                print('Browser smoke passed: feed, likes, saves, posts, comments, search, settings, messages, mobile logout, signup identity, private bookmarks, conversation race, live identity updates, cross-account response isolation, expired sessions, HTML/API discovery flags, 8 responsive widths, desktop reading measure, search dropdowns, reduced motion; no JS errors or external requests.')
         finally:
             server.shutdown()
             thread.join()

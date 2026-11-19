@@ -101,6 +101,34 @@ class CommonTest(unittest.TestCase):
         self.assertIn(b'New Neighbor', guest.get('/people/newneighbor').data)
         self.assertNotIn(b'Alex Morgan', guest.get('/settings').data)
 
+    def test_profile_get_never_merges_request_or_session_identity(self):
+        guest = self.app.test_client()
+        guest.get('/signup')
+        with guest.session_transaction() as session:
+            csrf = session['csrf']
+        response = guest.post('/signup', data={'csrf': csrf, 'username': 'anij',
+            'name': 'Anij', 'email': 'anij@common.test', 'password': 'neighbor-pass'})
+        self.assertEqual(response.status_code, 302)
+        guest.get('/')
+        # A different user's session and a GET body must not alter Alex's fields.
+        body = {'name': 'Anij', 'bio': '', 'location': 'Northside', 'email': 'anij@common.test'}
+        response = guest.get('/api/users/1', json=body)
+        self.assertEqual(response.json['id'], 1)
+        self.assertEqual(response.json['username'], 'alex')
+        self.assertEqual(response.json['name'], 'Alex Morgan')
+        self.assertEqual(response.json['email'], 'alex@common.test')
+        self.assertEqual(guest.get('/api/users/6').json['username'], 'anij')
+        self.assertEqual(guest.get('/api/users/6').json['name'], 'Anij')
+        # The intentional write flaw can change Alex's display name, not username.
+        with guest.session_transaction() as session:
+            csrf = session['csrf']
+        response = guest.patch('/api/users/1', json={'name': 'Anij'}, headers={'X-CSRF-Token': csrf})
+        self.assertEqual(response.status_code, 200)
+        response = guest.get('/api/users/1', json={'name': 'Ignored GET value'})
+        self.assertEqual(response.json['name'], 'Anij')
+        self.assertEqual(response.json['username'], 'alex')
+        self.assertEqual(guest.get('/api/users/6').json['username'], 'anij')
+
     def test_signup_normalizes_names_before_length_validation(self):
         guest = self.app.test_client()
         guest.get('/signup')

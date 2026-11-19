@@ -45,8 +45,15 @@ def create_app(config=None):
 
     @app.before_request
     def load_user():
-        g.user = get_db().execute('SELECT * FROM users WHERE id=?', (session.get('user_id'),)).fetchone()
-        session.setdefault('csrf', secrets.token_hex(24))
+        g.user = None
+        csrf = session.get('csrf')
+        if not isinstance(csrf, str) or not 1 <= len(csrf) <= 256:
+            session['csrf'] = secrets.token_hex(24)
+        user_id = session.get('user_id')
+        if type(user_id) is int and user_id > 0:
+            g.user = get_db().execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
+        if g.user is None:
+            session.pop('user_id', None)
         if request.method in {'POST', 'PATCH', 'DELETE', 'PUT'}:
             token = request.headers.get('X-CSRF-Token') or request.form.get('csrf', '')
             if not hmac.compare_digest(token.encode('utf-8'), session['csrf'].encode('utf-8')):
@@ -75,6 +82,12 @@ def create_app(config=None):
         if not isinstance(value, str) or len(value.strip()) > limit:
             abort(400, f'{key.capitalize()} must be text of at most {limit} characters.')
         return value.strip()
+
+    def valid_email(email):
+        if not 1 <= len(email) <= 180 or email.count('@') != 1:
+            return False
+        local, domain = email.split('@')
+        return bool(local and domain) and not any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in email)
 
     def public_user(user):
         return {key: user[key] for key in ('id', 'username', 'name', 'bio', 'location', 'color', 'role')}
@@ -111,17 +124,22 @@ def create_app(config=None):
             data = request.form
             username = data.get('username', '').lower().strip()
             name = data.get('name', '').strip()
-            email = data.get('email', '').strip()
-            if not username.isalnum() or not 3 <= len(username) <= 24 or len(data.get('password', '')) < 8 or not 1 <= len(name) <= 80 or not 1 <= len(email) <= 180 or '@' not in email:
+            email = data.get('email', '').strip().lower()
+            if not username.isalnum() or not 3 <= len(username) <= 24 or len(data.get('password', '')) < 8 or not 1 <= len(name) <= 80 or not valid_email(email):
                 error = 'Use a 3–24 character username, your name, an email, and a password of at least 8 characters.'
-            elif get_db().execute('SELECT id FROM users WHERE username=? OR email=?', (username, email)).fetchone():
+            elif get_db().execute('SELECT id FROM users WHERE username=? OR email=? COLLATE NOCASE', (username, email)).fetchone():
                 error = 'That username or email is already in use.'
             else:
-                cursor = get_db().execute('INSERT INTO users (username,name,email,password) VALUES (?,?,?,?)', (username, name, email, generate_password_hash(data['password'])))
-                get_db().commit()
-                session.clear()
-                session['user_id'] = cursor.lastrowid
-                return redirect(url_for('feed'))
+                try:
+                    cursor = get_db().execute('INSERT INTO users (username,name,email,password) VALUES (?,?,?,?)', (username, name, email, generate_password_hash(data['password'])))
+                    get_db().commit()
+                except sqlite3.IntegrityError:
+                    get_db().rollback()
+                    error = 'That username or email is already in use.'
+                else:
+                    session.clear()
+                    session['user_id'] = cursor.lastrowid
+                    return redirect(url_for('feed'))
         return render_template('auth.html', error=error, signup=True)
 
     @app.post('/logout')
@@ -194,8 +212,15 @@ def create_app(config=None):
         updates = {key: text_value(data, key, limit) for key, limit in allowed.items() if key in data}
         if 'name' in updates and not updates['name']:
             abort(400, 'Your name cannot be blank.')
-        if 'email' in updates and '@' not in updates['email']:
-            abort(400, 'Enter an email address.')
+        if 'email' in updates:
+            updates['email'] = updates['email'].lower()
+            if not valid_email(updates['email']):
+                abort(400, 'Enter an email address.')
+            if get_db().execute('SELECT id FROM users WHERE email=? COLLATE NOCASE AND id!=?', (updates['email'], user_id)).fetchone():
+                abort(409, 'That email is already in use.')
+        if 'role' in updates and updates['role'] not in {'member', 'admin'}:
+            abort(400, 'Choose a member or admin role.')
+        changed = set()
         if updates:
             columns = ', '.join(f'{key}=?' for key in updates)
             try:
@@ -210,7 +235,11 @@ def create_app(config=None):
                     award('BAC-02')
                 if 'role' in changed and updates['role'] == 'admin':
                     award('BAC-03')
-        return jsonify(ok=True)
+        updated = get_db().execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
+        result_user = public_user(updated)
+        if user_id == g.user['id']:
+            result_user['email'] = updated['email']
+        return jsonify(ok=True, user=result_user, changed_fields=sorted(changed))
 
     @app.get('/api/posts/<int:post_id>')
     @login_required
@@ -282,7 +311,7 @@ def create_app(config=None):
                 abort(400, 'Write a comment of 1–1000 characters.')
             get_db().execute('INSERT INTO comments (user_id,post_id,body) VALUES (?,?,?)', (g.user['id'], post_id, body))
             get_db().commit()
-        rows = get_db().execute('SELECT c.body, u.name FROM comments c JOIN users u ON u.id=c.user_id WHERE post_id=? ORDER BY c.id', (post_id,)).fetchall()
+        rows = get_db().execute('SELECT c.body, c.user_id, u.name, u.username FROM comments c JOIN users u ON u.id=c.user_id WHERE post_id=? ORDER BY c.id', (post_id,)).fetchall()
         if hidden_post(post) and (rows or request.method == 'POST'):
             award('BAC-01')
         return jsonify([dict(row) for row in rows])
@@ -303,7 +332,7 @@ def create_app(config=None):
                 abort(400, 'Write a message of 1–2000 characters.')
             get_db().execute('INSERT INTO messages (conversation_id,sender_id,body) VALUES (?,?,?)', (conversation_id, g.user['id'], body))
             get_db().commit()
-        messages = get_db().execute('SELECT m.*, u.name FROM messages m JOIN users u ON u.id=m.sender_id WHERE conversation_id=? ORDER BY m.id', (conversation_id,)).fetchall()
+        messages = get_db().execute('SELECT m.*, u.name, u.username FROM messages m JOIN users u ON u.id=m.sender_id WHERE conversation_id=? ORDER BY m.id', (conversation_id,)).fetchall()
         if not participant:
             award('BAC-05')
         return jsonify(subject=thread['subject'], messages=[dict(m) for m in messages])
