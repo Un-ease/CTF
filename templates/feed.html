@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="feed-page">
+  <header class="page-heading">
+    <div class="eyebrow">A LITTLE CLOSER, EVERY DAY</div>
+    <h1>{{ 'For another day.' if tab == 'saved' else 'Around here.' }}</h1>
+    <p>{{ 'The things you wanted to come back to, all in one place.' if tab == 'saved' else 'Familiar faces, new ideas, and good things from your people.' }}</p>
+  </header>
+  <div class="feed-layout">
+    <section class="feed-column" aria-label="{{ 'Saved posts' if tab == 'saved' else 'Neighborhood feed' }}">
+      {% if tab != 'saved' %}
+      <section class="composer card" aria-label="Create a post">
+        <form id="compose-form" data-pending-label="Posting…">
+          <div class="compose-top">{{ avatar(me) }}<div class="compose-field"><label for="post-body" class="sr-only">Write a post</label><textarea id="post-body" name="body" placeholder="What’s happening in your corner, {{ me.name.split()[0] }}?" required maxlength="2000" rows="2"></textarea></div></div>
+          <div class="compose-bottom">
+            <label class="audience-select">{{ icon('globe') }}<select name="visibility" aria-label="Post audience"><option value="public">Everyone</option><option value="circle">Close circle</option><option value="private">Only me</option></select></label>
+            <button class="primary" type="submit">Post {{ icon('arrow') }}</button>
+          </div>
+        </form>
+      </section>
+      {% endif %}
+      <div class="feed-divider"><h2>{{ 'Your collection' if tab == 'saved' else 'The neighborhood' }}</h2><span>Newest first</span></div>
+      {% include '_posts.html' %}
+      <div class="feed-end">{{ icon('flower') }} You’re in good company.</div>
+    </section>
+    <aside class="right-rail" aria-label="In your neighborhood">
+      <section class="people-section card">
+        <div class="rail-title"><h2>Say hello</h2><span>Your neighbors</span></div>
+        {% for person in people %}
+        <a class="suggestion" href="/people/{{ person.username }}">{{ avatar(person) }}<div><strong>{{ person.name }}</strong><small>{{ person.location }}</small></div><span class="hello" aria-hidden="true">↗</span></a>
+        {% endfor %}
+        <p class="rail-hint">Someone familiar. Someone new.</p>
+      </section>
+      <section class="event-card card">
+        <div class="eyebrow">ON THE BLOCK</div>
+        <div class="event-line"><span class="event-icon">{{ icon('flower') }}</span><div><h2>The Sunday seed swap</h2><p>Library garden · 10 am</p></div></div>
+        <p>Bring a few seeds. Meet a few neighbors. Everyone’s welcome.</p>
+        <a href="/posts/3">See the neighborhood post <span aria-hidden="true">↗</span></a>
+      </section>
+      <section class="daily-note">
+        <span class="note-art" aria-hidden="true">{{ icon('flower') }}</span>
+        <div class="eyebrow">THE COMMON GROUND</div>
+        <h2>Less scrolling.<br>More belonging.</h2>
+        <p>A smaller internet for the places<br>and people that matter.</p>
+      </section>
+      <footer class="rail-footer">Made for a little more connection.<br><span>© 2026 Common</span></footer>
+    </aside>
+  </div>
+</main>
+{% endblock %}

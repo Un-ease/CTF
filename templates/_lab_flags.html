@@ -1,0 +1,5 @@
+<section id="lab-discoveries" class="lab-discovery card" role="status" {% if not lab_flags %}hidden{% endif %}>
+  <strong>Flag found</strong>
+  <p>Save this flag and the request that revealed it. Explain what you could access or change.</p>
+  <ul class="lab-flag-list">{% for flag in lab_flags %}<li><code>{{ flag }}</code></li>{% endfor %}</ul>
+</section>

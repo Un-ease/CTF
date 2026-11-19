@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<main class="single-column">
+  <div class="page-heading"><div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your little corner.</h1><p>Your profile, your neighborhood, your details.</p></div>
+  <form id="settings-form" data-pending-label="Saving…" data-id="{{ me.id }}" class="card settings-form">
+    <div class="settings-avatar">{{ avatar(me, 'large') }}<div><strong>{{ me.name }}</strong><p>@{{ me.username }}</p></div></div>
+    <fieldset><legend>Public profile</legend><p class="field-hint">A few things to help your neighbors get to know you.</p>
+      <label>Name<input name="name" value="{{ me.name }}" required maxlength="80" autocomplete="name"></label>
+      <label>About you<textarea name="bio" aria-label="About you" maxlength="500" rows="3">{{ me.bio }}</textarea></label>
+      <label>Neighborhood<input name="location" value="{{ me.location }}" maxlength="100" autocomplete="address-level2"></label>
+    </fieldset>
+    <fieldset><legend>Account details</legend>
+      <label>Email<input type="email" name="email" value="{{ me.email }}" required maxlength="180" autocomplete="email" spellcheck="false"><small>Only used for your account. Not shown on your profile.</small></label>
+    </fieldset>
+    <div class="settings-footer"><span>Make yourself at home.</span><button class="primary" type="submit">Save changes {{ icon('arrow') }}</button></div>
+  </form>
+  {% if me.role == 'admin' %}<a class="staff-shortcut card" href="/staff">{{ icon('shield') }}<span>Community desk<small>Review neighborhood reports</small></span>{{ icon('arrow') }}</a>{% endif %}
+</main>
+{% endblock %}
