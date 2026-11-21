@@ -104,7 +104,7 @@ Normal browsing fetches `/api/posts` (or `?tab=saved`), `/api/users?q=...`, `/ap
 
 Every post has an Open post link, including your own posts on profile timelines. Click **Message** on another profile to create or reopen a two-person conversation via `POST /api/conversations` with `{"user_id": 2}` (session CSRF header required), then read/reply through `/api/conversations/:id`. No database reset or schema migration is needed.
 
-User collections exclude email/password fields. The intentionally overexposing single-user API remains a teaching flaw, so visiting another member's profile can now reveal INFO-01 through its normal GET response. Conversation lists only contain your threads; the intentionally unauthorized direct-read exercise remains intact.
+User collections exclude email/password fields. The intentionally overexposing single-user API remains a teaching flaw: visiting another member's profile exposes INFO-01 in its GET response's JSON and header, but passive profile loading does not automatically display the discovery banner. Students can find the leak by inspecting network traffic. Conversation lists only contain your threads; the intentionally unauthorized direct-read exercise remains intact.
 
 ## Identity and shared lab data
 
@@ -112,7 +112,7 @@ User collections exclude email/password fields. The intentionally overexposing s
 
 Profile PATCH responses include the actual updated `user` and `changed_fields`. The UI only refreshes the signed-in identity when the returned target matches it; it explicitly warns when a different account was changed. Owner update responses also return the saved email, but another account's update response does not add a new email leak. Display-name changes never change usernames or account IDs.
 
-Use one instance per student/group. Profile edits, role changes, and deletions persist and can affect other learners sharing an instance. Code updates do not restore altered names or roles. The Python entry point and container deployment use separate databases by default; make sure you are inspecting the same instance. Reset only when you intentionally want to destroy lab data.
+Use one instance per student/group. Profile edits, role changes, and deletions persist and can affect other learners sharing an instance. BAC-04 is awarded in the DELETE response's JSON `flags` and `X-Lab-Flags` header only when a non-admin deletes someone else's existing post. If you already promoted your account to admin, use a fresh member account or change your own role back to `member` before testing; do not reset shared lab data. Successful deletes identify the actual target in `deleted_post` so an intercepted request does not remove the wrong card from the UI. Code updates do not restore altered names or roles. The Python entry point and container deployment use separate databases by default; make sure you are inspecting the same instance. Reset only when you intentionally want to destroy lab data.
 
 ## Verify
 

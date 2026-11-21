@@ -74,12 +74,25 @@ class FlagTest(unittest.TestCase):
         self.assert_flags(self.mutate('/api/users/1', 'patch', {'role': 'admin'}))
 
     def test_unauthorized_delete_and_chat(self):
-        self.assert_flags(self.mutate('/api/posts/1', 'delete'), 'BAC-04')
+        deleted = self.assert_flags(self.mutate('/api/posts/1', 'delete'), 'BAC-04')
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json['deleted_post'], {'id': 1, 'user_id': 2})
+        self.assertEqual(self.client.get('/api/posts/1').status_code, 404)
         self.assert_flags(self.mutate('/api/posts/1', 'delete'))
         self.assert_flags(self.client.get('/api/conversations/2'), 'BAC-05')
         response = self.assert_flags(self.mutate('/api/conversations/2', data={'body': 'An uninvited reply'}))
         self.assertEqual(response.status_code, 403)
         self.assertNotIn('An uninvited reply', str(self.client.get('/api/conversations/2').json))
+
+    def test_delete_flag_uses_current_role_not_original_login_role(self):
+        # A student may already have completed the role-escalation exercise.
+        self.assert_flags(self.mutate('/api/users/1', 'patch', {'role': 'admin'}), 'BAC-03')
+        admin_delete = self.assert_flags(self.mutate('/api/posts/2', 'delete'))
+        self.assertEqual(admin_delete.status_code, 200)
+        self.assertEqual(admin_delete.json['deleted_post'], {'id': 2, 'user_id': 3})
+        self.assert_flags(self.mutate('/api/users/1', 'patch', {'role': 'member'}))
+        self.assert_flags(self.mutate('/api/posts/3', 'delete'), 'BAC-04')
+        self.assert_flags(self.mutate('/api/posts/4', 'delete'))  # Own post.
 
     def test_staff_api_preserves_array_contract(self):
         response = self.assert_flags(self.client.get('/api/staff/reports'), 'BAC-06')

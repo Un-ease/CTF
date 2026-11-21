@@ -37,14 +37,14 @@ function showLabFlags(header) {
   });
   notice.hidden = !list.children.length;
 }
-async function api(path, method = 'GET', data) {
+async function api(path, method = 'GET', data, { announceFlags = true } = {}) {
   const response = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': $('meta[name="csrf-token"]').content },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
   const result = await response.json().catch(() => ({}));
-  showLabFlags(response.headers.get('X-Lab-Flags'));
+  if (announceFlags) showLabFlags(response.headers.get('X-Lab-Flags'));
   if (response.status === 401) {
     location.assign('/login');
     throw new Error('Your session ended. Sign in again.');
@@ -150,8 +150,15 @@ $$('.comment-form', scope).forEach(form => form.addEventListener('submit', async
 }));
 $$('.delete-post', scope).forEach(button => button.addEventListener('click', async () => {
   if (!confirm('Delete this post? This can’t be undone.')) return;
-  try { await api(`/api/posts/${button.dataset.id}`, 'DELETE'); $(`#post-${button.dataset.id}`).remove(); toast('Post deleted.'); }
-  catch (error) { toast(error.message); }
+  button.disabled = true;
+  try {
+    const result = await api(`/api/posts/${button.dataset.id}`, 'DELETE');
+    const id = result.deleted_post?.id;
+    if (!Number.isInteger(id)) throw new Error('The server did not identify the deleted post. Refresh to verify.');
+    $(`#post-${id}`)?.remove();
+    toast(`Post #${id} deleted.`);
+  } catch (error) { toast(error.message); }
+  finally { button.disabled = false; }
 }));
 }
 bindPostActions();
@@ -232,7 +239,9 @@ async function loadPageResources() {
     } finally { posts.removeAttribute('aria-busy'); }
   })());
   if (profile) jobs.push((async () => {
-    const user = await api('/api/users/' + profile.dataset.profileId);
+    // Passive profile browsing must not announce the disclosure exercise.
+    // Keep the real response (including leaked email and flags) inspectable.
+    const user = await api('/api/users/' + profile.dataset.profileId, 'GET', undefined, { announceFlags: false });
     $('[data-profile-name]', profile).textContent = user.name;
     $('[data-profile-location]', profile).textContent = `@${user.username} · ${user.location}`;
     $('[data-profile-bio]', profile).textContent = user.bio;

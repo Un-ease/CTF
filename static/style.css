@@ -135,6 +135,10 @@ nav a.active { background: var(--lavender); color: var(--purple); font-weight: 6
 .feed-divider > span { color: var(--muted); font-size: 12px; }
 .post { margin-bottom: 16px; overflow: hidden; }
 .post-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 20px 24px 0; }
+.post-heading > .person { flex: 1; }
+.post-controls { display: flex; align-items: center; flex-shrink: 0; gap: 4px; }
+.post-controls .icon-button { width: 44px; height: 44px; }
+.post-controls .delete-post:hover { color: #a52a3a; background: #fcebed; }
 .person { display: flex; gap: 12px; align-items: center; min-width: 0; }
 .person > div { min-width: 0; }
 .person strong { display: block; font-size: 14px; overflow-wrap: anywhere; }

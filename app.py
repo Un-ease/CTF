@@ -337,7 +337,7 @@ def create_app(config=None):
             db.execute('DELETE FROM posts WHERE id=?', (post_id,))
         if post['user_id'] != g.user['id'] and g.user['role'] != 'admin':
             award('BAC-04')
-        return jsonify(ok=True)
+        return jsonify(ok=True, deleted_post={'id': post['id'], 'user_id': post['user_id']})
 
     @app.post('/api/posts/<int:post_id>/<action>')
     @login_required

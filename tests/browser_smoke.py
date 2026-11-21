@@ -63,8 +63,14 @@ def main():
                 page.locator('.comment-list p').filter(has_text='A real browser reply').wait_for()
                 page.locator('#search').fill('Maya')
                 page.locator('#search').press('Enter')
-                page.locator('#search-results a').first.click()
+                with page.expect_response(origin + '/api/users/2') as profile_response:
+                    page.locator('#search-results a').first.click()
                 page.get_by_role('heading', name='Maya Chen', exact=True).wait_for()
+                page.wait_for_load_state('networkidle')
+                assert profile_response.value.json()['email'] == 'maya@common.test'
+                assert profile_response.value.json()['flags'] == ['COMMON{private_email_public_response}']
+                assert profile_response.value.headers['x-lab-flags'] == 'COMMON{private_email_public_response}'
+                assert page.locator('#lab-discoveries').is_hidden(), 'Passive profile load announced an exploit flag'
                 page.get_by_role('link', name='Settings', exact=True).click()
                 page.locator('input[name="name"]').fill('  Alex Updated  ')
                 page.get_by_label('About you', exact=True).fill('Updated from a real browser.')
@@ -240,6 +246,30 @@ def main():
                 page.get_by_role('button', name='Message', exact=True).click()
                 page.wait_for_url(conversation_url)
                 page.locator('#message-list').get_by_text('Hello from your profile!', exact=True).wait_for()
+                page.goto(origin)
+                page.wait_for_function('!document.querySelector("[data-post-source]").hasAttribute("aria-busy")')
+                for width in [320, 390, 1440]:
+                    page.set_viewport_size({'width': width, 'height': 1080})
+                    assert page.evaluate('''() => {
+                        const heading = document.querySelector('#post-4 .post-heading');
+                        const person = heading.querySelector('.person').getBoundingClientRect();
+                        const controls = heading.querySelector('.post-controls').getBoundingClientRect();
+                        const buttons = [...heading.querySelectorAll('.post-controls > *')].map(el => el.getBoundingClientRect());
+                        return person.right <= controls.left && buttons[0].right <= buttons[1].left;
+                    }'''), f'Post controls overlap at {width}px'
+                # Model an intercepting proxy changing an own-post DELETE to another ID.
+                def change_delete_target(route):
+                    response = route.fetch(url=origin + '/api/posts/1')
+                    assert response.json()['flags'] == ['COMMON{not_your_post_to_delete}']
+                    assert response.headers['x-lab-flags'] == 'COMMON{not_your_post_to_delete}'
+                    route.fulfill(response=response)
+                page.route('**/api/posts/4', change_delete_target)
+                page.once('dialog', lambda dialog: dialog.accept())
+                page.locator('#post-4 .delete-post').click()
+                page.get_by_text('COMMON{not_your_post_to_delete}', exact=True).wait_for()
+                page.locator('#post-1').wait_for(state='detached')
+                assert page.locator('#post-4').count() == 1, 'Changed request removed the wrong card'
+                page.unroute('**/api/posts/4')
                 assert not errors, errors
                 assert not external, external
                 browser.close()
