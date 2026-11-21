@@ -107,7 +107,8 @@ onForm('#settings-form', async (form, data) => {
 function authorLabel(author) {
   return author.username ? `${author.name} · @${author.username}` : author.name;
 }
-$$('[data-action]').forEach(button => button.addEventListener('click', async () => {
+function bindPostActions(scope = document) {
+$$('[data-action]', scope).forEach(button => button.addEventListener('click', async () => {
   button.disabled = true;
   try {
     const result = await api(`/api/posts/${button.dataset.id}/${button.dataset.action}`, 'POST', {});
@@ -130,13 +131,13 @@ function drawComments(panel, comments) {
     p.append(name, document.createTextNode(comment.body)); list.append(p);
   });
 }
-$$('.show-comments').forEach(button => button.addEventListener('click', async () => {
+$$('.show-comments', scope).forEach(button => button.addEventListener('click', async () => {
   const panel = $(`[data-comments="${button.dataset.id}"]`);
   if (!panel.hidden) { panel.hidden = true; return; }
   try { drawComments(panel, await api(`/api/posts/${button.dataset.id}/comments`)); panel.hidden = false; }
   catch (error) { toast(error.message); }
 }));
-$$('.comment-form').forEach(form => form.addEventListener('submit', async event => {
+$$('.comment-form', scope).forEach(form => form.addEventListener('submit', async event => {
   event.preventDefault();
   const button = $('button', form); button.disabled = true;
   try {
@@ -147,11 +148,13 @@ $$('.comment-form').forEach(form => form.addEventListener('submit', async event 
   } catch (error) { toast(error.message); }
   finally { button.disabled = false; }
 }));
-$$('.delete-post').forEach(button => button.addEventListener('click', async () => {
+$$('.delete-post', scope).forEach(button => button.addEventListener('click', async () => {
   if (!confirm('Delete this post? This can’t be undone.')) return;
   try { await api(`/api/posts/${button.dataset.id}`, 'DELETE'); $(`#post-${button.dataset.id}`).remove(); toast('Post deleted.'); }
   catch (error) { toast(error.message); }
 }));
+}
+bindPostActions();
 let activeConversation;
 let conversationRequest = 0;
 async function loadConversation(id) {
@@ -175,7 +178,10 @@ async function loadConversation(id) {
   });
   list.scrollTop = list.scrollHeight;
 }
-$$('.thread').forEach(button => button.addEventListener('click', () => loadConversation(button.dataset.id).catch(error => toast(error.message))));
+$('.thread-list')?.addEventListener('click', event => {
+  const button = event.target.closest('.thread');
+  if (button) loadConversation(button.dataset.id).catch(error => toast(error.message));
+});
 onForm('#message-form', async (form, data) => {
   const id = activeConversation;
   if (id === undefined) return;
@@ -187,7 +193,7 @@ onForm('#message-form', async (form, data) => {
 });
 onForm('#search-form', async (form) => {
   const results = $('#search-results');
-  const users = await api('/api/search?q=' + encodeURIComponent($('#search').value));
+  const { users } = await api('/api/users?q=' + encodeURIComponent($('#search').value));
   results.replaceChildren();
   users.forEach(user => {
     const link = document.createElement('a'); link.href = '/people/' + encodeURIComponent(user.username);
@@ -198,6 +204,71 @@ onForm('#search-form', async (form) => {
 });
 document.addEventListener('click', event => { if (!event.target.closest('.search') && $('#search-results')) $('#search-results').hidden = true; });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && $('#search-results')) $('#search-results').hidden = true; });
+
+function neighborLink(user) {
+  const link = document.createElement('a');
+  link.className = 'suggestion';
+  link.href = '/people/' + encodeURIComponent(user.username);
+  const label = document.createElement('strong'); label.textContent = user.name;
+  const detail = document.createElement('small'); detail.textContent = '@' + user.username;
+  const info = document.createElement('div'); info.append(label, detail); link.append(info);
+  return link;
+}
+async function loadPageResources() {
+  const posts = $('[data-post-source]');
+  const profile = $('[data-profile-id]');
+  const jobs = [];
+  if (posts) jobs.push((async () => {
+    posts.setAttribute('aria-busy', 'true');
+    try {
+      const result = await api(posts.dataset.postSource);
+      // This fragment is rendered and escaped by our own Jinja templates.
+      posts.innerHTML = result.html;
+      bindPostActions(posts);
+      $$('time[datetime]', posts).forEach(time => {
+        const date = new Date(time.dateTime);
+        if (!Number.isNaN(date.getTime())) time.textContent = new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}).format(date);
+      });
+    } finally { posts.removeAttribute('aria-busy'); }
+  })());
+  if (profile) jobs.push((async () => {
+    const user = await api('/api/users/' + profile.dataset.profileId);
+    $('[data-profile-name]', profile).textContent = user.name;
+    $('[data-profile-location]', profile).textContent = `@${user.username} · ${user.location}`;
+    $('[data-profile-bio]', profile).textContent = user.bio;
+  })());
+  if ($('#neighbor-list')) jobs.push((async () => {
+    const { users } = await api('/api/users');
+    $('#neighbor-list').replaceChildren(...users.filter(user => user.id !== Number(document.body.dataset.userId)).slice(0, 3).map(neighborLink));
+  })());
+  if ($('.thread-list')) jobs.push((async () => {
+    const { conversations } = await api('/api/conversations');
+    const list = $('.thread-list');
+    $$('.thread, .muted', list).forEach(el => el.remove());
+    conversations.forEach(thread => {
+      const button = document.createElement('button'); button.className = 'thread'; button.dataset.id = thread.id;
+      const info = document.createElement('div');
+      const title = document.createElement('strong'); title.textContent = thread.subject;
+      const preview = document.createElement('small'); preview.textContent = thread.preview || 'Say hello.';
+      info.append(title, preview); button.append(info); list.append(button);
+    });
+    if (!conversations.length) {
+      const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = 'Visit a neighbor’s profile to start a conversation.'; list.append(empty);
+    }
+    const id = new URLSearchParams(location.search).get('conversation');
+    if (id && conversations.some(thread => String(thread.id) === id)) await loadConversation(id);
+  })());
+  const results = await Promise.allSettled(jobs);
+  results.filter(result => result.status === 'rejected').forEach(result => toast(result.reason.message));
+}
+$('#start-message')?.addEventListener('click', async event => {
+  const button = event.currentTarget; button.disabled = true;
+  try {
+    const thread = await api('/api/conversations', 'POST', {user_id: Number(button.dataset.userId)});
+    location.assign('/messages?conversation=' + thread.id);
+  } catch (error) { toast(error.message); button.disabled = false; }
+});
+loadPageResources();
 $$('.resolve-report').forEach(button => button.addEventListener('click', async () => {
   try { await api(`/api/staff/reports/${button.dataset.id}/resolve`, 'POST', {}); location.reload(); }
   catch (error) { toast(error.message); }

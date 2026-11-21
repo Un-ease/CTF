@@ -20,15 +20,17 @@
       </section>
       {% endif %}
       <div class="feed-divider"><h2>{{ 'Your collection' if tab == 'saved' else 'The neighborhood' }}</h2><span>Newest first</span></div>
-      {% include '_posts.html' %}
+      <div data-post-source="/api/posts?view=cards&amp;tab={{ tab }}">{% include '_posts.html' %}</div>
       <div class="feed-end">{{ icon('flower') }} You’re in good company.</div>
     </section>
     <aside class="right-rail" aria-label="In your neighborhood">
       <section class="people-section card">
         <div class="rail-title"><h2>Say hello</h2><span>Your neighbors</span></div>
+        <div id="neighbor-list">
         {% for person in people %}
         <a class="suggestion" href="/people/{{ person.username }}">{{ avatar(person) }}<div><strong>{{ person.name }}</strong><small>{{ person.location }}</small></div><span class="hello" aria-hidden="true">↗</span></a>
         {% endfor %}
+        </div>
         <p class="rail-hint">Someone familiar. Someone new.</p>
       </section>
       <section class="event-card card">

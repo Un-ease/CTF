@@ -189,6 +189,64 @@ def create_app(config=None):
             FROM conversations c JOIN participants p ON c.id=p.conversation_id WHERE p.user_id=?''', (g.user['id'],)).fetchall()
         return render_template('messages.html', threads=threads, tab='messages')
 
+    def post_collection(posts):
+        result = {'posts': [dict(post) for post in posts]}
+        if request.args.get('view') == 'cards':
+            result['html'] = render_template('_post_cards.html', posts=posts, tab=request.args.get('tab', 'feed'))
+        return jsonify(result)
+
+    @app.get('/api/posts')
+    @login_required
+    def list_posts():
+        if request.args.get('tab') == 'saved':
+            posts = post_query("(p.visibility='public' OR p.user_id=?) AND EXISTS(SELECT 1 FROM saves WHERE post_id=p.id AND user_id=?)", (g.user['id'], g.user['id']))
+        else:
+            posts = post_query("p.visibility='public'")
+        return post_collection(posts)
+
+    @app.get('/api/users')
+    @login_required
+    def list_users():
+        query = request.args.get('q', '')
+        users = get_db().execute('SELECT * FROM users WHERE name LIKE ? OR username LIKE ? ORDER BY id LIMIT 50', (f'%{query}%', f'%{query}%')).fetchall()
+        return jsonify(users=[public_user(user) for user in users])
+
+    @app.get('/api/users/<int:user_id>/posts')
+    @login_required
+    def user_posts(user_id):
+        if get_db().execute('SELECT id FROM users WHERE id=?', (user_id,)).fetchone() is None:
+            abort(404)
+        return post_collection(post_query("p.user_id=? AND (p.visibility='public' OR p.user_id=?)", (user_id, g.user['id'])))
+
+    @app.get('/api/conversations')
+    @login_required
+    def list_conversations():
+        rows = get_db().execute('''SELECT c.*, (SELECT body FROM messages WHERE conversation_id=c.id ORDER BY id DESC LIMIT 1) AS preview
+            FROM conversations c JOIN participants p ON c.id=p.conversation_id WHERE p.user_id=? ORDER BY c.id DESC''', (g.user['id'],)).fetchall()
+        return jsonify(conversations=[dict(row) for row in rows])
+
+    @app.post('/api/conversations')
+    @login_required
+    def start_conversation():
+        user_id = json_object().get('user_id')
+        if type(user_id) is not int or user_id == g.user['id']:
+            abort(400, 'Choose another neighbor.')
+        user = get_db().execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
+        if user is None:
+            abort(404)
+        db = get_db()
+        with db:
+            existing = db.execute('''SELECT c.id FROM conversations c
+                WHERE EXISTS(SELECT 1 FROM participants WHERE conversation_id=c.id AND user_id=?)
+                AND EXISTS(SELECT 1 FROM participants WHERE conversation_id=c.id AND user_id=?)
+                AND (SELECT count(*) FROM participants WHERE conversation_id=c.id)=2 LIMIT 1''', (g.user['id'], user_id)).fetchone()
+            if existing:
+                return jsonify(id=existing['id']), 200
+            cursor = db.execute('INSERT INTO conversations (subject) VALUES (?)', (f"@{g.user['username']} and @{user['username']}",))
+            conversation_id = cursor.lastrowid
+            db.executemany('INSERT INTO participants (conversation_id,user_id) VALUES (?,?)', [(conversation_id, g.user['id']), (conversation_id, user_id)])
+        return jsonify(id=conversation_id), 201
+
     @app.get('/api/users/<int:user_id>')
     @login_required
     def user_detail(user_id):
@@ -249,6 +307,8 @@ def create_app(config=None):
             abort(404)
         if hidden_post(posts[0]):
             award('BAC-01')
+        if request.args.get('view') == 'cards':
+            return post_collection(posts)
         return jsonify(dict(posts[0]))
 
     @app.post('/api/posts')

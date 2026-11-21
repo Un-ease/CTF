@@ -91,12 +91,20 @@ Share [`STUDENT.md`](STUDENT.md) as the learner handout. The private flag answer
 - Likes, comments, bookmarks, deleting posts, and saved feed
 - People search and editable account/profile details, with explicit target IDs/usernames in update responses
 - Live refresh of your own display name/avatar; comments and messages include stable usernames
-- Seeded direct-message conversations with working replies
+- Seeded direct-message conversations, profile Message buttons, and working replies
 - Staff report queue and resolution actions
 - Centered desktop feed, prioritized neighborhood sidebar, and labeled mobile bottom navigation
 - Grouped profile settings, readable local timestamps, keyboard skip link, reduced-motion support, and locally hosted fonts/illustrations
 
-“Close circle” is an audience label for the initial access-control exercises, not a fully implemented social graph. There is no follow system, message initiation UI, email delivery, media upload, or password-recovery service yet. No external services are required at runtime.
+“Close circle” is an audience label for the initial access-control exercises, not a fully implemented social graph. There is no follow system, email delivery, media upload, or password-recovery service yet. No external services are required at runtime.
+
+## Browsing APIs
+
+Normal browsing fetches `/api/posts` (or `?tab=saved`), `/api/users?q=...`, `/api/users/:id`, `/api/users/:id/posts`, `/api/posts/:id`, and `/api/conversations`. Collection responses use `posts`, `users`, or `conversations` arrays. The existing single-user and single-post response shapes remain unchanged. The post UI requests `?view=cards`, which adds a Jinja-escaped HTML fragment alongside the post data; initial server-rendered cards remain as a fallback if that request fails.
+
+Every post has an Open post link, including your own posts on profile timelines. Click **Message** on another profile to create or reopen a two-person conversation via `POST /api/conversations` with `{"user_id": 2}` (session CSRF header required), then read/reply through `/api/conversations/:id`. No database reset or schema migration is needed.
+
+User collections exclude email/password fields. The intentionally overexposing single-user API remains a teaching flaw, so visiting another member's profile can now reveal INFO-01 through its normal GET response. Conversation lists only contain your threads; the intentionally unauthorized direct-read exercise remains intact.
 
 ## Identity and shared lab data
 

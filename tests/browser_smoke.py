@@ -219,6 +219,27 @@ def main():
                     assert guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Guest page overflow: {path}'
                     assert guest.locator('.auth-form').is_visible()
                 guest.close()
+                page.goto(origin + '/login')
+                page.get_by_label('Username', exact=True).fill('alex')
+                page.get_by_label('Password', exact=True).fill('alex-common-2026')
+                page.locator('.auth-form button').click()
+                page.wait_for_url(origin + '/')
+                page.goto(origin + '/people/jules')
+                page.wait_for_function('!document.querySelector("[data-post-source]").hasAttribute("aria-busy")')
+                page.get_by_role('link', name='Open post', exact=True).first.click()
+                page.wait_for_url(origin + '/posts/2')
+                page.goto(origin + '/people/jules')
+                page.get_by_role('button', name='Message', exact=True).click()
+                page.wait_for_url('**/messages?conversation=*')
+                page.locator('#conversation-content').wait_for(state='visible')
+                page.get_by_label('Your message', exact=True).fill('Hello from your profile!')
+                page.get_by_role('button', name='Send').click()
+                page.locator('#message-list').get_by_text('Hello from your profile!', exact=True).wait_for()
+                conversation_url = page.url
+                page.goto(origin + '/people/jules')
+                page.get_by_role('button', name='Message', exact=True).click()
+                page.wait_for_url(conversation_url)
+                page.locator('#message-list').get_by_text('Hello from your profile!', exact=True).wait_for()
                 assert not errors, errors
                 assert not external, external
                 browser.close()

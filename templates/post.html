@@ -1,1 +1,1 @@
-{% extends 'base.html' %}{% block content %}<main class="single-column"><div class="page-heading"><a class="text-button" href="/">← Back to the neighborhood</a></div>{% include '_posts.html' %}</main>{% endblock %}
+{% extends 'base.html' %}{% block content %}<main class="single-column"><div class="page-heading"><a class="text-button" href="/">← Back to the neighborhood</a></div><div data-post-source="/api/posts/{{ posts[0].id }}?view=cards">{% include '_posts.html' %}</div></main>{% endblock %}
